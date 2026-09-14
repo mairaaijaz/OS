@@ -15,7 +15,7 @@ main(int argc, char *argv[])
   int ticks = atoi(argv[1]);
   
   // Call the system's sleep command
-  sleep(ticks);
+  pause(ticks);
 
   // Exit successfully
   exit(0);
