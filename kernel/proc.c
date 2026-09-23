@@ -289,6 +289,10 @@ kfork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
+  // inherit sandbox mask from parent
+  np->syscall_mask = p->syscall_mask;
+  safestrcpy(np->allowed_path, p->allowed_path, sizeof(p->allowed_path));
+
   pid = np->pid;
 
   release(&np->lock);

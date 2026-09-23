@@ -110,3 +110,25 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// set syscall mask and allowed path for sandbox
+uint64
+sys_interpose(void)
+{
+  int mask;
+  char path[128];
+  struct proc *p = myproc();
+
+  argint(0, &mask);
+  if (argstr(1, path, sizeof(path)) < 0)
+    return -1;
+
+  p->syscall_mask = mask;
+  // "-" means no path allowed; clear allowed_path
+  if (path[0] == '-' && path[1] == '\0')
+    p->allowed_path[0] = '\0';
+  else
+    safestrcpy(p->allowed_path, path, sizeof(p->allowed_path));
+
+  return 0;
+}

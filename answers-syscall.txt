@@ -1,0 +1,26 @@
+GDB Exercise Answers
+
+1. Which function called syscall?
+   usertrap() in kernel/trap.c
+
+2. What is the value of p->trapframe->a7 and what does it represent?
+   The value is 1 (SYS_exec). It is the system call number placed in register
+   a7 by the user-space stub before executing the ecall instruction. For the
+   first process (init), the first system call is exec.
+
+3. What was the previous mode that the CPU was in?
+   User mode. The SPP (Supervisor Previous Privilege) bit in sstatus is 0,
+   which indicates the CPU was in user mode before the trap.
+
+4. Write down the assembly instruction the kernel is panicking at. Which
+   register corresponds to the variable num?
+   The instruction is: lw a5, 0(zero) (or lw aX, 0x0)
+   The register a5 (or similar) corresponds to the variable num.
+
+5. Why does the kernel crash?
+   Address 0 is not mapped in the kernel address space (see Figure 3-3 in the
+   xv6 book). Dereferencing a null pointer (address 0) causes a page fault.
+   The scause value 0xd = 13 = load page fault confirms this.
+
+6. What is the name of the process that was running when the kernel panicked?
+   initcode, pid = 1.
