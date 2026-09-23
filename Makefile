@@ -131,6 +131,9 @@ mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 
 UPROGS=\
 	$U/_cat\
+	$U/_hello\
+	$U/_sir_w\
+	$U/_forkdemo\
 	$U/_echo\
 	$U/_forktest\
 	$U/_grep\
@@ -146,6 +149,7 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
+	$U/_freemem\
 	$U/_logstress\
 	$U/_forphan\
 	$U/_dorphan\
