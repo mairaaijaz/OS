@@ -23,11 +23,30 @@ struct {
   struct run *freelist;
 } kmem;
 
+#ifdef LAB_PGTBL
+// A handful of 2MB-aligned physical regions reserved at the top of
+// RAM for superpages. kalloc() never hands these out.
+#define NSUPERPG 16
+#define SUPERBASE (PHYSTOP - NSUPERPG * SUPERPGSIZE)
+
+struct {
+  struct spinlock lock;
+  struct run *freelist;
+} smem;
+#endif
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+#ifdef LAB_PGTBL
+  initlock(&smem.lock, "smem");
+  freerange(end, (void*)SUPERBASE);
+  for(uint64 p = SUPERBASE; p + SUPERPGSIZE <= PHYSTOP; p += SUPERPGSIZE)
+    superfree((void*)p);
+#else
   freerange(end, (void*)PHYSTOP);
+#endif
 }
 
 void
@@ -80,3 +99,42 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+#ifdef LAB_PGTBL
+// Allocate one 2MB, 2MB-aligned region of physical memory.
+// Returns 0 if none is available.
+void *
+superalloc(void)
+{
+  struct run *r;
+
+  acquire(&smem.lock);
+  r = smem.freelist;
+  if(r)
+    smem.freelist = r->next;
+  release(&smem.lock);
+
+  if(r)
+    memset((char*)r, 5, SUPERPGSIZE); // fill with junk
+  return (void*)r;
+}
+
+// Free a 2MB region previously returned by superalloc().
+void
+superfree(void *pa)
+{
+  struct run *r;
+
+  if(((uint64)pa % SUPERPGSIZE) != 0 || (uint64)pa < SUPERBASE ||
+     (uint64)pa >= PHYSTOP)
+    panic("superfree");
+
+  memset(pa, 1, SUPERPGSIZE);
+
+  r = (struct run*)pa;
+  acquire(&smem.lock);
+  r->next = smem.freelist;
+  smem.freelist = r;
+  release(&smem.lock);
+}
+#endif

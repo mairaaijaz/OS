@@ -1,0 +1,143 @@
+Lab: page tables -- answers
+=========================================================
+
+Permission bits used below (RISC-V Sv39 PTE, low 8 bits):
+  V=0x01 valid, R=0x02 read, W=0x04 write, X=0x08 execute,
+  U=0x10 user-accessible, G=0x20 global, A=0x40 accessed, D=0x80 dirty
+
+---------------------------------------------------------
+1. Inspect a user-process page table (print_pgtbl output)
+---------------------------------------------------------
+Output from my kernel:
+
+va 0x0          pte 0x217C7C5B pa 0x85F1F000 perm 0x5B
+va 0x1000       pte 0x217C705B pa 0x85F1C000 perm 0x5B
+va 0x2000       pte 0x217C6C17 pa 0x85F1B000 perm 0x17
+va 0x3000       pte 0x217C6807 pa 0x85F1A000 perm 0x7
+va 0x4000       pte 0x217C64D7 pa 0x85F19000 perm 0xD7
+va 0x5000 .. 0x9000                 pte 0x0 (unmapped)
+va 0x3FFFFF6000 .. 0x3FFFFFC000     pte 0x0 (unmapped)
+va 0x3FFFFFD000 pte 0x217D4813 pa 0x85F52000 perm 0x13
+va 0x3FFFFFE000 pte 0x217D00C7 pa 0x85F40000 perm 0xC7
+va 0x3FFFFFF000 pte 0x2000184B pa 0x80006000 perm 0x4B
+
+va 0x0, va 0x1000 (perm 0x5B = V|R|X|U|A):
+  The program text (code + read-only data) of pgtbltest, loaded by
+  exec from the ELF file. Readable and executable by user code, not
+  writable. A is set because the CPU has fetched from it.
+
+va 0x2000 (perm 0x17 = V|R|W|U):
+  The program's data/bss segment (global variables). User read/write,
+  not executable. A/D not yet set at the moment of printing.
+
+va 0x3000 (perm 0x07 = V|R|W, no U):
+  The stack guard page. exec maps it and then clears PTE_U
+  (uvmclear) so any user access traps; this catches stack overflow.
+
+va 0x4000 (perm 0xD7 = V|R|W|U|A|D):
+  The user stack (one page). Holds argc/argv strings and the call
+  stack. Read/write by user, accessed and dirtied.
+
+va 0x5000 - 0x9000 and 0x3FFFFF6000 - 0x3FFFFFC000:
+  Not mapped (pte 0). Above the stack is the (empty) heap; the
+  region below the top three pages is unused address space.
+
+va 0x3FFFFFD000 (perm 0x13 = V|R|U):  USYSCALL
+  The page shared read-only between kernel and user (added in this
+  lab). It holds struct usyscall { int pid; }. User can read it but
+  not write or execute it.
+
+va 0x3FFFFFE000 (perm 0xC7 = V|R|W|A|D, no U):  TRAPFRAME
+  The per-process trapframe where trampoline.S saves user registers
+  on a trap. Only the kernel/trampoline (supervisor) uses it.
+
+va 0x3FFFFFF000 (perm 0x4B = V|R|X|A, no U):  TRAMPOLINE
+  The trampoline code (uservec/userret). Its physical address
+  0x80006000 is inside the kernel image; the same physical page is
+  mapped in every process and in the kernel page table. Supervisor
+  execute only.
+
+Physical addresses are not consecutive: each page is a separate
+kalloc() page, handed out from the free list in arbitrary order.
+
+---------------------------------------------------------
+2. Speed up system calls
+---------------------------------------------------------
+Which other xv6 system call(s) could be made faster using this
+shared page? Explain how.
+
+Any system call whose result only reads small per-process kernel
+state that the kernel can keep up to date in the shared page:
+
+ - getppid-like info / the parent's pid (if xv6 had it).
+ - uptime(): the kernel could write the global `ticks` counter
+   into a shared read-only page on every timer interrupt; user code
+   would read it directly without a trap (like Linux's vDSO
+   clock_gettime / gettimeofday).
+ - fstat()/sbrk(0)-style queries: e.g. the current process size
+   p->sz could be stored there so sbrk(0) (query the break) does not
+   need to enter the kernel.
+
+The kernel updates the value whenever it changes; user space just
+loads it from USYSCALL, so no kernel crossing (ecall, trap, context
+save/restore) is needed. Calls that modify kernel state (fork,
+write, ...) cannot use this, since the page is read-only to user.
+
+---------------------------------------------------------
+3. Print a page table (vmprint)
+---------------------------------------------------------
+My output:
+
+page table 0x0000000085f22000
+ ..0x0000000000000000: pte 0x00000000217c7801 pa 0x0000000085f1e000
+ .. ..0x0000000000000000: pte 0x00000000217c7401 pa 0x0000000085f1d000
+ .. .. ..0x0000000000000000: pte 0x00000000217c7c5b pa 0x0000000085f1f000
+ .. .. ..0x0000000000001000: pte 0x00000000217c705b pa 0x0000000085f1c000
+ .. .. ..0x0000000000002000: pte 0x00000000217c6cd7 pa 0x0000000085f1b000
+ .. .. ..0x0000000000003000: pte 0x00000000217c6807 pa 0x0000000085f1a000
+ .. .. ..0x0000000000004000: pte 0x00000000217c64d7 pa 0x0000000085f19000
+ ..0x0000003fc0000000: pte 0x00000000217c8401 pa 0x0000000085f21000
+ .. ..0x0000003fffe00000: pte 0x00000000217c8001 pa 0x0000000085f20000
+ .. .. ..0x0000003fffffd000: pte 0x00000000217d4853 pa 0x0000000085f52000
+ .. .. ..0x0000003fffffe000: pte 0x00000000217d00c7 pa 0x0000000085f40000
+ .. .. ..0x0000003ffffff000: pte 0x000000002000184b pa 0x0000000080006000
+
+The non-leaf entries (flags 0x01 = only V) point to the level-1 and
+level-0 page-table pages. Top-level index 0 covers the low user
+addresses, index 255 (va 0x3fc0000000) covers the top of the address
+space (MAXVA-1GB .. MAXVA).
+
+Leaf pages (level 0):
+ 0x0000  flags 0x5b V|R|X|U|A    -> text page 1 (code)
+ 0x1000  flags 0x5b V|R|X|U|A    -> text page 2 (code/rodata)
+ 0x2000  flags 0xd7 V|R|W|U|A|D  -> data/bss
+ 0x3000  flags 0x07 V|R|W        -> stack guard page (no U)
+ 0x4000  flags 0xd7 V|R|W|U|A|D  -> user stack
+ 0x3fffffd000 flags 0x53 V|R|U|A -> USYSCALL page (read-only to user)
+ 0x3fffffe000 flags 0xc7 V|R|W|A|D -> TRAPFRAME (kernel only)
+ 0x3ffffff000 flags 0x4b V|R|X|A -> TRAMPOLINE (kernel only)
+
+Relation to print_pgtbl: these are exactly the same leaf mappings
+(same virtual addresses and the same physical pages) that
+print_pgtbl showed, because it is the same pgtbltest process.
+print_pgtbl printed va 0x3FFFFFD000.. which is MAXVA-3*4096 etc.,
+the same as 0x3fffffd000 here. Differences are only in the A/D
+bits, which the hardware set in between the two prints:
+ - data page 0x2000 went 0x17 -> 0xd7 (written to, so A and D set)
+ - USYSCALL went 0x13 -> 0x53 (A set after ugetpid_test read it)
+vmprint additionally shows the intermediate (non-leaf) page-table
+pages, which print_pgtbl does not.
+
+---------------------------------------------------------
+4. Superpages -- design summary
+---------------------------------------------------------
+ - kalloc.c reserves 16 2MB-aligned regions at the top of RAM;
+   superalloc()/superfree() manage them on a separate free list.
+ - uvmalloc() maps a superpage (leaf PTE at level 1) for every
+   2MB-aligned 2MB piece of a growing sbrk range, falling back to
+   4KB pages if none is available.
+ - uvmcopy() (fork) copies a superpage into a new superpage.
+ - uvmunmap() frees a whole superpage at once; if only part of a
+   superpage is removed it is "demoted" into 512 ordinary pages
+   (contents copied) and then the requested 4KB pages are freed.
+ - walkaddr() adds the in-superpage offset so copyin/copyout work.
