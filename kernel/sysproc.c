@@ -68,6 +68,8 @@ sys_pause(void)
   int n;
   uint ticks0;
 
+  backtrace();
+
   argint(0, &n);
   if(n < 0)
     n = 0;
@@ -104,4 +106,34 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  uint64 handler;
+  struct proc *p = myproc();
+
+  argint(0, &interval);
+  argaddr(1, &handler);
+  if(interval < 0)
+    return -1;
+  p->alarm_interval = interval;
+  p->alarm_handler = handler;
+  p->alarm_ticks = 0;
+  p->alarm_inhandler = 0;
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+
+  // restore the registers saved when the alarm fired
+  memmove(p->trapframe, &p->alarm_tf, sizeof(struct trapframe));
+  p->alarm_inhandler = 0;
+  // return the original a0 so syscall() doesn't clobber it
+  return p->trapframe->a0;
 }

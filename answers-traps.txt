@@ -1,0 +1,25 @@
+1. Which registers contain arguments to functions? Which holds 13 in main's call to printf?
+   Arguments are passed in a0-a7 (fa0-fa7 for floats). In main's call to printf,
+   13 is held in register a2 (a0 = format string, a1 = 12, a2 = 13).
+
+2. Where is the call to f in main? Where is the call to g?
+   There is no call. The compiler inlined both: f(8)+1 was computed at compile
+   time and main simply does "li a1,12" (at 0x26). g is inlined into f as well.
+
+3. At what address is printf located?
+   0x706. In user/call.asm main calls it with "30: jal 706 <printf>".
+
+4. What value is in ra just after the jalr to printf in main?
+   ra = 0x34, the address of the instruction right after the call at 0x30
+   (jal/jalr sets ra = pc + 4).
+
+5. Output of printf("H%x Wo%s", 57616, (char *)&i) with i = 0x00646c72:
+   "He110 World".  57616 = 0xe110; the bytes of i in memory (little-endian)
+   are 72 6c 64 00 = 'r' 'l' 'd' '\0'.
+   On big-endian, i would need to be 0x726c6400. 57616 does NOT need to
+   change, since %x prints the numeric value regardless of byte order.
+
+6. printf("x=%d y=%d", 3): what is printed after y=?
+   Some unpredictable value: whatever garbage happens to be in register a2
+   at the time of the call. printf reads the 2nd integer argument from a2,
+   but the caller never set it.
